@@ -1,19 +1,10 @@
-name: Validar Pull Request
 
-# Se dispara con CUALQUIER Pull Request hacia main, incluidos los que
-# vienen de un fork de alguien que nunca has visto. Esto es seguro:
-# GitHub, por defecto, NO le entrega secrets a un workflow disparado
-# por un PR de un fork externo, así que aunque el código del PR sea
-# de cualquier persona, no puede leer ni tocar el token del repo
-# privado (ese token vive solo en el workflow "Auto-fusionar", que
-# nunca ejecuta nada del PR, solo llama a la API de GitHub).
 on:
   pull_request:
     branches: [main]
 
 permissions:
   contents: read
-  pull-requests: write # solo para comentar el resultado en el PR
 
 jobs:
   validar:
@@ -33,10 +24,6 @@ jobs:
           HEAD_SHA="${{ github.event.pull_request.head.sha }}"
 
           # 1. El PR SOLO puede tocar archivos dentro de uploads/.
-          #    Cualquier cambio fuera de esa carpeta (por ejemplo a
-          #    .github/workflows/) rechaza el PR completo. Esto es lo
-          #    que impide que alguien manipule el workflow o robe el
-          #    secret desde un PR.
           fuera_de_uploads=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -v '^uploads/' || true)
           if [ -n "$fuera_de_uploads" ]; then
             echo "::error::El PR modifica archivos fuera de uploads/:"
@@ -45,8 +32,7 @@ jobs:
             exit 1
           fi
 
-          # 2. Solo se permite AGREGAR archivos nuevos, no editar ni
-          #    borrar material que ya esté en uploads/.
+          # 2. Solo se permite AGREGAR archivos nuevos.
           cambios=$(git diff --name-status "$BASE_SHA" "$HEAD_SHA" -- uploads/)
           no_agregados=$(echo "$cambios" | awk '$1 != "A" {print}')
           if [ -n "$no_agregados" ]; then
@@ -86,19 +72,18 @@ jobs:
 
           echo "Validación OK: $(echo "$nuevos" | wc -l) archivo(s) nuevo(s)"
 
-      - name: Comentar resultado en el PR
+      - name: Guardar resultado para el workflow de resolución
         if: always()
-        uses: actions/github-script@v7
+        run: |
+          mkdir -p resultado
+          echo "${{ steps.validar.outcome }}" > resultado/conclusion.txt
+          echo "${{ steps.validar.outputs.motivo }}" > resultado/motivo.txt
+          echo "${{ github.event.pull_request.number }}" > resultado/numero.txt
+
+      - name: Subir resultado como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          script: |
-            const ok = "${{ steps.validar.outcome }}" === "success";
-            const motivo = `${{ steps.validar.outputs.motivo }}`;
-            const body = ok
-              ? "✅ Validación superada. Este PR se fusionará y publicará automáticamente en un par de minutos — nadie tiene que aprobarlo a mano."
-              : `❌ Este PR no cumple las reglas y no se puede fusionar automáticamente.\n\n**Motivo:** ${motivo || "revisa el nombre del archivo, el tamaño, o que solo hayas tocado uploads/"}\n\nRevisa el README de este repositorio, corrige y vuelve a hacer push a la misma rama de tu fork. El PR se revalida solo.`;
-            github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              body,
-            });
+          name: resultado-validacion
+          path: resultado/
+          retention-days: 1

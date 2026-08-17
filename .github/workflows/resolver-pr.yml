@@ -1,0 +1,69 @@
+name: Resolver Pull Request
+
+on:
+  workflow_run:
+    workflows: ["Validar Pull Request"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read 
+
+jobs:
+  resolver:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar resultado de la validación
+        uses: actions/download-artifact@v4
+        with:
+          name: resultado-validacion
+          path: resultado
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Leer resultado
+        id: resultado
+        run: |
+          echo "conclusion=$(cat resultado/conclusion.txt)" >> "$GITHUB_OUTPUT"
+          echo "numero=$(cat resultado/numero.txt)" >> "$GITHUB_OUTPUT"
+          {
+            echo "motivo<<EOF"
+            cat resultado/motivo.txt
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Comentar rechazo
+        if: steps.resultado.outputs.conclusion == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMERO: ${{ steps.resultado.outputs.numero }}
+          MOTIVO: ${{ steps.resultado.outputs.motivo }}
+        run: |
+          gh pr comment "$NUMERO" --repo "${{ github.repository }}" --body "❌ Este PR no cumple las reglas y no se puede fusionar automáticamente.
+
+          **Motivo:** ${MOTIVO:-revisa el nombre del archivo, el tamaño, o que solo hayas tocado uploads/}
+
+          Revisa el README de este repositorio, corrige y vuelve a hacer push a la misma rama de tu fork. El PR se revalida solo, no hace falta abrir uno nuevo."
+
+      - name: Revalidar alcance (defensa en profundidad) y fusionar
+        if: steps.resultado.outputs.conclusion == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMERO: ${{ steps.resultado.outputs.numero }}
+        run: |
+          set -euo pipefail
+
+          # Segunda verificación independiente, por si hubo un push
+          # nuevo al PR entre que se validó y ahora.
+          fuera_de_uploads=$(gh api "repos/${{ github.repository }}/pulls/$NUMERO/files" --paginate \
+            --jq '.[].filename' | grep -v '^uploads/' || true)
+
+          if [ -n "$fuera_de_uploads" ]; then
+            gh pr comment "$NUMERO" --repo "${{ github.repository }}" --body "❌ La revalidación automática detectó cambios fuera de \`uploads/\` justo antes de fusionar. No se fusionará; corrige y vuelve a intentarlo."
+            exit 1
+          fi
+
+          gh pr comment "$NUMERO" --repo "${{ github.repository }}" --body "✅ Validación superada. Fusionando automáticamente — no hace falta que nadie lo apruebe."
+          gh pr merge "$NUMERO" --repo "${{ github.repository }}" --squash \
+            --subject "Material Extra: fusión automática (validado por Action)"
