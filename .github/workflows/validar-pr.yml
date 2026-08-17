@@ -1,0 +1,104 @@
+name: Validar Pull Request
+
+# Se dispara con CUALQUIER Pull Request hacia main, incluidos los que
+# vienen de un fork de alguien que nunca has visto. Esto es seguro:
+# GitHub, por defecto, NO le entrega secrets a un workflow disparado
+# por un PR de un fork externo, así que aunque el código del PR sea
+# de cualquier persona, no puede leer ni tocar el token del repo
+# privado (ese token vive solo en el workflow "Auto-fusionar", que
+# nunca ejecuta nada del PR, solo llama a la API de GitHub).
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write # solo para comentar el resultado en el PR
+
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (solo para leer nombres/tamaños, nada se ejecuta)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validar alcance, nombre y tamaño
+        id: validar
+        run: |
+          set -euo pipefail
+
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          # 1. El PR SOLO puede tocar archivos dentro de uploads/.
+          #    Cualquier cambio fuera de esa carpeta (por ejemplo a
+          #    .github/workflows/) rechaza el PR completo. Esto es lo
+          #    que impide que alguien manipule el workflow o robe el
+          #    secret desde un PR.
+          fuera_de_uploads=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -v '^uploads/' || true)
+          if [ -n "$fuera_de_uploads" ]; then
+            echo "::error::El PR modifica archivos fuera de uploads/:"
+            echo "$fuera_de_uploads"
+            echo "motivo=El PR toca archivos fuera de uploads/ (no permitido)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # 2. Solo se permite AGREGAR archivos nuevos, no editar ni
+          #    borrar material que ya esté en uploads/.
+          cambios=$(git diff --name-status "$BASE_SHA" "$HEAD_SHA" -- uploads/)
+          no_agregados=$(echo "$cambios" | awk '$1 != "A" {print}')
+          if [ -n "$no_agregados" ]; then
+            echo "::error::No se permite editar/borrar archivos existentes:"
+            echo "$no_agregados"
+            echo "motivo=Intenta editar o borrar un archivo existente (no permitido)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          nuevos=$(echo "$cambios" | awk '$1 == "A" {print $2}' | grep -v '/\.gitkeep$' || true)
+          if [ -z "$nuevos" ]; then
+            echo "::error::El PR no agrega ningún archivo nuevo en uploads/"
+            echo "motivo=No se detectó ningún archivo nuevo" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # 3. Nombre y tamaño de cada archivo nuevo.
+          PATRON='^uploads/[a-z0-9]+(-[a-z0-9]+)*_[a-z0-9]+(-[a-z0-9]+)*\.(pdf|docx|pptx|xlsx|ipynb|png|jpg|jpeg|txt|md)$'
+          MAX_BYTES=$((25 * 1024 * 1024))
+
+          while IFS= read -r archivo; do
+            [ -z "$archivo" ] && continue
+
+            if [[ ! "$archivo" =~ $PATRON ]]; then
+              echo "::error::Nombre inválido: $archivo"
+              echo "motivo=Nombre de archivo inválido: $(basename "$archivo")" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+
+            tam=$(stat -c%s "$archivo")
+            if [ "$tam" -gt "$MAX_BYTES" ]; then
+              echo "::error::Muy pesado: $archivo"
+              echo "motivo=Archivo mayor a 25 MB: $(basename "$archivo")" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          done <<< "$nuevos"
+
+          echo "Validación OK: $(echo "$nuevos" | wc -l) archivo(s) nuevo(s)"
+
+      - name: Comentar resultado en el PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const ok = "${{ steps.validar.outcome }}" === "success";
+            const motivo = `${{ steps.validar.outputs.motivo }}`;
+            const body = ok
+              ? "✅ Validación superada. Este PR se fusionará y publicará automáticamente en un par de minutos — nadie tiene que aprobarlo a mano."
+              : `❌ Este PR no cumple las reglas y no se puede fusionar automáticamente.\n\n**Motivo:** ${motivo || "revisa el nombre del archivo, el tamaño, o que solo hayas tocado uploads/"}\n\nRevisa el README de este repositorio, corrige y vuelve a hacer push a la misma rama de tu fork. El PR se revalida solo.`;
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });

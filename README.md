@@ -59,3 +59,5 @@ nosotros, y solo puede aplicar una vez por cuenta nueva.
   ni tocar ningún otro archivo del repositorio (por ejemplo los
   workflows de `.github/`) — cualquier intento de eso rechaza el PR
   completo automáticamente.
+- Sube solo material que tengas derecho a compartir con fines de
+  estudio.

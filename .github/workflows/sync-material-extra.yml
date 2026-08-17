@@ -1,0 +1,130 @@
+name: Sincronizar Material Extra al repo principal
+
+# Se dispara con cada push a main dentro de uploads/ — lo que en este
+# flujo significa: cada vez que "Auto-fusionar PR validado" fusiona
+# un Pull Request. Para este punto el archivo ya pasó la validación
+# de nombre/tamaño/alcance dos veces, así que este workflow solo
+# copia y limpia.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "uploads/**"
+
+# Permisos mínimos: este repo público solo necesita poder borrar
+# los archivos que ya sincronizó (usa el GITHUB_TOKEN automático,
+# no el secreto del repo privado).
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo público (con los archivos nuevos)
+        uses: actions/checkout@v4
+        with:
+          path: publico
+          fetch-depth: 1
+
+      - name: Checkout repo principal (privado)
+        uses: actions/checkout@v4
+        with:
+          repository: TU_USUARIO/TU_REPO_PRIVADO # <-- CAMBIAR
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: privado
+          fetch-depth: 1
+
+      - name: Validar, copiar y sincronizar
+        id: sync
+        run: |
+          set -euo pipefail
+
+          ORIGEN="publico/uploads"
+          DESTINO="privado/static/pdf/material-extra"
+          mkdir -p "$DESTINO"
+
+          # Revalidación final (tercera capa): nombre, patrón y peso.
+          # En teoría ya pasó dos veces antes de llegar aquí, pero
+          # esta capa no depende de las anteriores.
+          PATRON='^[a-z0-9]+(-[a-z0-9]+)*_[a-z0-9]+(-[a-z0-9]+)*\.(pdf|docx|pptx|xlsx|ipynb|png|jpg|jpeg|txt|md)$'
+          MAX_BYTES=$((25 * 1024 * 1024)) # 25 MB por archivo
+
+          sincronizados=()
+          rechazados=()
+
+          shopt -s nullglob
+          for archivo in "$ORIGEN"/*; do
+            nombre="$(basename "$archivo")"
+            [ "$nombre" = ".gitkeep" ] && continue
+            [ -f "$archivo" ] || continue
+
+            if [[ ! "$nombre" =~ $PATRON ]]; then
+              echo "::warning::Nombre inválido, se ignora: $nombre"
+              rechazados+=("$nombre (nombre inválido)")
+              continue
+            fi
+
+            tam=$(stat -c%s "$archivo")
+            if [ "$tam" -gt "$MAX_BYTES" ]; then
+              echo "::warning::Muy pesado, se ignora: $nombre"
+              rechazados+=("$nombre (> 25 MB)")
+              continue
+            fi
+
+            cp "$archivo" "$DESTINO/$nombre"
+            sincronizados+=("$nombre")
+          done
+
+          {
+            echo "sincronizados<<EOF"
+            printf '%s\n' "${sincronizados[@]:-}"
+            echo "EOF"
+            echo "rechazados<<EOF"
+            printf '%s\n' "${rechazados[@]:-}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Sincronizados: ${#sincronizados[@]} · Rechazados: ${#rechazados[@]}"
+
+      - name: Commit y push al repo principal
+        if: steps.sync.outputs.sincronizados != ''
+        working-directory: privado
+        run: |
+          git config user.name "material-extra-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add static/pdf/material-extra/
+          if ! git diff --cached --quiet; then
+            git commit -m "Material Extra: sincronizar archivos subidos por la comunidad
+
+          Archivos:
+          ${{ steps.sync.outputs.sincronizados }}"
+            git push
+          fi
+
+      - name: Borrar del repo público lo ya sincronizado
+        if: steps.sync.outputs.sincronizados != ''
+        working-directory: publico
+        run: |
+          git config user.name "material-extra-bot"
+          git config user.email "actions@users.noreply.github.com"
+          while IFS= read -r nombre; do
+            [ -z "$nombre" ] && continue
+            rm -f "uploads/$nombre"
+          done <<< "${{ steps.sync.outputs.sincronizados }}"
+          git add uploads/
+          if ! git diff --cached --quiet; then
+            git commit -m "Limpieza: archivos ya sincronizados al repo principal [skip ci]"
+            git push
+          fi
+
+      - name: Resumen
+        if: always()
+        run: |
+          echo "### Resultado de la sincronización" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Sincronizados:**" >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.sync.outputs.sincronizados }}' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Rechazados (revisa el nombre o el peso):**" >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.sync.outputs.rechazados }}' >> "$GITHUB_STEP_SUMMARY"
