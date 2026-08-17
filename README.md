@@ -1,16 +1,14 @@
 # Material Extra · Repositorio de subida
 
 Este repositorio es un buzón público. **Cualquier persona con cuenta
-de GitHub puede subir un archivo, sin que nadie tenga que darle
-permiso de antemano.** Se hace por fork + Pull Request, y todo el
-proceso se valida y fusiona solo — nadie tiene que revisarlo a mano.
+de GitHub puede subir un archivo.** Se hace por fork más Pull Request, y todo el
+proceso se valida y fusiona solo.
 
 ## Cómo subir un archivo
 
-1. Haz **fork** de este repositorio (botón "Fork" arriba a la
-   derecha de la página de GitHub).
+1. Haz **fork** de este repositorio.
 2. En tu fork, agrega tu archivo dentro de la carpeta `uploads/`.
-3. **Nómbralo así:** `<ramo>_<titulo>.<extension>`, todo en
+3. **Nómbralo así:** `<ramo>_<título>.<extensión>`, todo en
    minúsculas, palabras separadas por guion (`-`), y el ramo separado
    del título por guion bajo (`_`).
 
@@ -18,7 +16,7 @@ proceso se valida y fusiona solo — nadie tiene que revisarlo a mano.
    ```
    algebra-lineal_espacios-vectoriales.pdf
    calculo_limites-y-continuidad.pdf
-   fisica-general_cinematica.docx
+   programacion-avanzada_tuplas.ipynb
    ```
 
    Ejemplos **inválidos**:
@@ -29,25 +27,10 @@ proceso se valida y fusiona solo — nadie tiene que revisarlo a mano.
 
 4. Haz commit en tu fork y abre un **Pull Request** hacia `main` de
    este repositorio.
-5. Una Action valida automáticamente el nombre, el tamaño, y que tu
-   PR solo haya tocado `uploads/`. Si todo está bien, el PR se
-   fusiona solo en un par de minutos. El archivo pasa al sitio
-   principal y desaparece de este buzón. No hace falta avisarle a
-   nadie ni esperar aprobación.
-6. Si algo está mal, la Action te lo deja como comentario en el
-   mismo PR explicando qué corregir. Corrige el archivo o el nombre
-   y vuelve a hacer push a la misma rama de tu fork — el PR se
-   revalida solo, no hace falta abrir uno nuevo.
-
-## Sobre la primera vez que subes algo
-
-Por seguridad, GitHub pide que alguien con acceso de escritura a
-este repo apruebe manualmente la primera vez que corre una Action
-para una cuenta de GitHub **recién creada y sin actividad previa**.
-Si tu cuenta ya tiene algo de historial (así sea de otro proyecto),
-esto normalmente no debería pasarte. Es la única excepción al
-"sin permisos" — la impone GitHub como protección antiabuso, no
-nosotros, y solo puede aplicar una vez por cuenta nueva.
+5. Se valida automáticamente el nombre, el tamaño, y que tu
+   Pull Request solo haya tocado `uploads/`.
+6. Si algo está mal, corrige el archivo o el nombre
+   y vuelve a hacer push a la misma rama de tu fork.
 
 ## Reglas
 
@@ -55,7 +38,4 @@ nosotros, y solo puede aplicar una vez por cuenta nueva.
 - Extensiones permitidas: `pdf, docx, pptx, xlsx, ipynb, png, jpg,
   jpeg, txt, md` (se puede ampliar editando el workflow).
 - El Pull Request **solo puede agregar** archivos nuevos dentro de
-  `uploads/`. No se permite editar ni borrar material ya publicado,
-  ni tocar ningún otro archivo del repositorio (por ejemplo los
-  workflows de `.github/`) — cualquier intento de eso rechaza el PR
-  completo automáticamente.
+  `uploads/`.
