@@ -30,7 +30,7 @@ jobs:
       - name: Checkout repo principal (privado)
         uses: actions/checkout@v4
         with:
-          repository: TU_USUARIO/TU_REPO_PRIVADO # <-- CAMBIAR
+          repository: darthvython/talleres
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           path: privado
           fetch-depth: 1
